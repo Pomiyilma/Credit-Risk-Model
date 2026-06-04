@@ -30,50 +30,28 @@ def load_data(path):
     return pd.read_csv(path)
 
 def prepare_features(df):
-    # 1. Base columns we always want to drop
-    columns_to_drop = ["is_high_risk"]
+    # 👇 ADD THE OTHER ID COLUMNS DIRECTLY HERE 👇
+    columns_to_drop = [
+        "is_high_risk", 
+        "CustomerId", 
+        "AccountId", 
+        "SubscriptionId"
+    ]
     
-    # 2. Dynamically scan for high-cardinality text columns (like IDs) before dummying
-    # If a text column has more unique values than 50% of the dataset size, it's an ID.
+    # Keep your dynamic threshold filter below it as a safety net
     threshold = len(df) * 0.5 
-    
     for col in df.columns:
         if df[col].dtype == 'object' or str(df[col].dtype) == 'category':
             unique_count = df[col].nunique()
-            # If it's a unique identifier string, drop it entirely!
-            if unique_count > threshold:
+            if unique_count > threshold and col not in columns_to_drop:
                 print(f"⚠️ Dropping high-cardinality ID column: '{col}' ({unique_count} unique values)")
                 columns_to_drop.append(col)
                 
-    # 3. Drop all target and ID columns safely
-    # (using errors='ignore' in case some aren't present)
     X = df.drop(columns=columns_to_drop, errors='ignore')
 
     print(f"Shape of X before One-Hot Encoding: {X.shape}")
-
-    # 4. Safely convert remaining low-cardinality categories (like 'Channel', 'CardType')
     X = pd.get_dummies(X, drop_first=True)
-    
     print(f"Shape of X after One-Hot Encoding: {X.shape}")
-
-    y = df["is_high_risk"]
-
-    return X, y
-    # Columns we absolutely cannot pass into the mathematical models
-    columns_to_drop = ["is_high_risk"]
-    
-    # Check if ID columns exist in your dataset and add them to the drop list
-    id_cols = ["TransactionId", "CustomerId", "Id"]
-    for col in id_cols:
-        if col in df.columns:
-            columns_to_drop.append(col)
-            
-    # Drop target and metadata IDs
-    X = df.drop(columns=columns_to_drop)
-
-    # Convert remaining text/categorical columns into numeric dummy variables (One-Hot Encoding)
-    # This transforms categories like "Product_A" or "Channel_Web" into 1s and 0s
-    X = pd.get_dummies(X, drop_first=True)
 
     y = df["is_high_risk"]
 
@@ -221,6 +199,14 @@ def main():
             # 2. Evaluate
             metrics = evaluate_model(model, X_test, y_test)
             print(name, metrics)
+
+            if name == "RandomForest":
+                importances = model.feature_importances_
+                indices = np.argsort(importances)[::-1]
+                print("\n🚨 --- DETECTING TARGET LEAKAGE: TOP 10 FEATURES --- 🚨")
+                for f in range(min(10, X_train.shape[1])):
+                    print(f"{f + 1}. {X_train.columns[indices[f]]} ({importances[indices[f]]:.4f})")
+                print("----------------------------------------------------\n")
 
             # 3. Log everything directly inside the open run
             mlflow.log_params(model.get_params())
