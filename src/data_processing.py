@@ -20,6 +20,8 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
+from sklearn.cluster import KMeans
+from xverse.transformer import WOE
 
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import (
@@ -255,3 +257,189 @@ def transform_to_dataframe(df):
         if hasattr(transformed, "toarray")
         else transformed
     )
+
+
+def create_rfm_features(df):
+    """
+    Create customer-level RFM metrics.
+    """
+
+    df = df.copy()
+
+    df["TransactionStartTime"] = pd.to_datetime(
+        df["TransactionStartTime"]
+    )
+
+    snapshot_date = (
+        df["TransactionStartTime"].max()
+        + pd.Timedelta(days=1)
+    )
+
+    rfm = (
+        df.groupby("CustomerId")
+        .agg(
+            Recency=(
+                "TransactionStartTime",
+                lambda x:
+                (
+                    snapshot_date - x.max()
+                ).days
+            ),
+
+            Frequency=(
+                "TransactionId",
+                "count"
+            ),
+
+            Monetary=(
+                "Amount",
+                "sum"
+            )
+        )
+        .reset_index()
+    )
+
+    return rfm
+
+
+def scale_rfm(rfm_df):
+
+    scaler = StandardScaler()
+
+    scaled_rfm = scaler.fit_transform(
+        rfm_df[
+            [
+                "Recency",
+                "Frequency",
+                "Monetary"
+            ]
+        ]
+    )
+
+    return scaled_rfm
+
+
+def cluster_customers(rfm_df):
+
+    scaled_rfm = scale_rfm(rfm_df)
+
+    kmeans = KMeans(
+        n_clusters=3,
+        random_state=42,
+        n_init=10
+    )
+
+    rfm_df["Cluster"] = (
+        kmeans.fit_predict(scaled_rfm)
+    )
+
+    return rfm_df
+
+
+def identify_high_risk_cluster(clustered_df):
+    """
+    Automatically identify the least engaged cluster.
+    """
+
+    cluster_summary = (
+        clustered_df
+        .groupby("Cluster")
+        [["Recency", "Frequency", "Monetary"]]
+        .mean()
+    )
+
+    cluster_summary["RiskScore"] = (
+        cluster_summary["Recency"]
+        - cluster_summary["Frequency"]
+        - cluster_summary["Monetary"]
+    )
+
+    high_risk_cluster = (
+        cluster_summary["RiskScore"]
+        .idxmax()
+    )
+
+    return high_risk_cluster
+
+
+def create_target_variable(clustered_df):
+    """
+    Create binary is_high_risk target.
+    """
+
+    high_risk_cluster = (
+        identify_high_risk_cluster(clustered_df)
+    )
+
+    clustered_df["is_high_risk"] = (
+        clustered_df["Cluster"]
+        == high_risk_cluster
+    ).astype(int)
+
+    return clustered_df
+
+def merge_target_to_dataset(df):
+    """
+    Add is_high_risk target to
+    transaction-level dataset.
+    """
+
+    rfm_df = create_rfm_features(df)
+
+    clustered_df = cluster_customers(rfm_df)
+
+    target_df = create_target_variable(
+        clustered_df
+    )
+
+    final_df = df.merge(
+        target_df[
+            [
+                "CustomerId",
+                "is_high_risk"
+            ]
+        ],
+        on="CustomerId",
+        how="left"
+    )
+
+    return final_df
+
+def apply_woe(df):
+    """
+    Apply Weight of Evidence transformation.
+    """
+
+    df = df.copy()
+
+    target = "is_high_risk"
+
+    categorical_cols = [
+        "ProviderId",
+        "ProductId",
+        "ProductCategory",
+        "ChannelId",
+        "CurrencyCode"
+    ]
+
+    woe = WOE()
+
+    woe.fit(
+        df[categorical_cols],
+        df[target]
+    )
+
+    transformed = woe.transform(
+        df[categorical_cols]
+    )
+
+    return transformed
+
+def generate_processed_dataset(df):
+    """
+    Complete Task 4 workflow.
+    """
+
+    final_df = merge_target_to_dataset(df)
+
+    return final_df
