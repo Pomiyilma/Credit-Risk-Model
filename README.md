@@ -1,7 +1,5 @@
 # Credit Risk Modeling for Buy-Now-Pay-Later Services
 
-## Overview
-
 Access to credit remains one of the biggest barriers for many customers in emerging digital economies. Traditional credit scoring approaches often depend on repayment histories, credit bureau records, and extensive financial data—resources that may not be available for many potential borrowers.
 
 This project addresses that challenge by building an end-to-end credit risk modeling system for a Buy-Now-Pay-Later (BNPL) service offered by Bati Bank in partnership with an eCommerce platform. Using transaction-level behavioral data from Xente, the project develops a framework capable of identifying potentially risky customers, generating risk scores, and serving predictions through a production-ready API.
